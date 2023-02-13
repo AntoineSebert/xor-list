@@ -3,17 +3,17 @@
  * https://en.wikipedia.org/wiki/XOR_linked_list
  */
 
-#pragma once
-
-#include <cstddef>
-#include <iterator>
-#include <limits>
-#include <memory>
-#include <stdexcept>
-#include <type_traits>
-#include <utility>
-
 export module xorlist;
+
+import <cstddef>;
+
+import <iterator>;
+import <limits>;
+import <memory>;
+import <stdexcept>;
+import <type_traits>;
+import <utility>;
+
 
 /**
  - [x] list() noexcept(is_nothrow_default_constructible<allocator_type>::value);
@@ -118,16 +118,17 @@ export module xorlist;
 */
 
 export template <typename T, class Allocator = std::allocator<T>> class xorlist {
+  protected:
 	//  Member types
 	using value_type = T;
 	using allocator_type = Allocator;
 	using size_type = size_t;
 	using difference_type = std::ptrdiff_t;
-	using reference = allocator_type::reference;
-	using const_reference = allocator_type::const_reference;
-	using pointer = allocator_type::pointer;
-	using void_pointer = allocator_type::void_pointer;
-	using const_pointer = allocator_type::const_pointer;
+	using reference = value_type&;
+	using const_reference = const value_type&;
+	using pointer = std::allocator_traits<Allocator>::pointer;
+	using void_pointer = std::allocator_traits<Allocator>::void_pointer;
+	using const_pointer = std::allocator_traits<Allocator>::const_pointer;
 	// iterator
 	// https://gist.github.com/jeetsukumaran/307264
 	class iterator {
@@ -195,37 +196,36 @@ export template <typename T, class Allocator = std::allocator<T>> class xorlist 
 	using reverse_iterator = std::reverse_iterator<iterator>;
 	using const_reverse_iterator = std::reverse_iterator<const_iterator>;
 
+  private:
 	// node
+	template <class T> struct _node;
+	using __alloc_traits = std::allocator_traits<allocator_type>;
+	using __node_allocator = typename __alloc_traits::template rebind_alloc<_node<T>>;
+	using __node_alloc_traits = std::allocator_traits<__node_allocator>;
+	using __node_pointer = typename __node_alloc_traits::pointer;
+	//using __node_pointer = typename std::pointer_traits<void_pointer>::template rebind<_node<T>>;
+	std::pair<size_type, __node_allocator> __size_alloc_;
+	__node_allocator &__node_alloc() noexcept { return __size_alloc_.second; }
+	const __node_allocator &__node_alloc() const noexcept { return __size_alloc_.second; }
 
-	struct _node;
-	using _node_pointer = typename std::pointer_traits<void_pointer>::template rebind<_node>;
-	using _base_pointer = typename std::pointer_traits<void_pointer>::template rebind<_node>;
-	using _link_pointer =
-		typename std::conditional<std::is_pointer<void_pointer>::value, _base_pointer, _node_pointer>::type;
-	using _non_link_pointer = typename std::conditional<std::is_same<_link_pointer, _node_pointer>::value,
-														_base_pointer, _node_pointer>::type;
-	using _node_allocator = std::allocator<_node>;
-	typedef std::unique_ptr<_node, _node_allocator::destroy> __hold_pointer;
+	template <class T> struct _node {
+		using __node_pointer = typename std::pointer_traits<void_pointer>::template rebind<_node<T>>;
+		__node_pointer _link;
+		T _value;
 
-	struct _node {
-		_link_pointer _link;
-		value_type _value_;
+		_node() : _link(_self()) {}
 
-		static inline _link_pointer _unsafe_link_pointer_cast(_link_pointer _p) { return _p; }
+		__node_pointer _self() { return std::pointer_traits<__node_pointer>::pointer_to(*this); }
 
-		inline _node() : _link(_unsafe_link_pointer_cast(_self())) {}
+		__node_pointer _as_node() { return static_cast<__node_pointer>(_self()); }
 
-		inline _base_pointer _self() { return std::pointer_traits<_base_pointer>::pointer_to(*this); }
-
-		inline _node_pointer _as_node() { return static_cast<_node_pointer>(_self()); }
-
-		inline _link_pointer _as_link() { return static_cast<_link_pointer>(_self()); }
+		__node_pointer _as_link() { return static_cast<__node_pointer>(_self()); }
 	};
 
 	pointer front0 = nullptr, front1 = nullptr, back0 = nullptr, back1 = nullptr;
 	Allocator alloc;
 	size_type _size{};
-	_node _end;
+	_node<value_type> _end;
 
 	/* Member functions */
 
@@ -234,7 +234,7 @@ export template <typename T, class Allocator = std::allocator<T>> class xorlist 
 	 * Default constructor. Constructs an empty container with a default-constructed allocator.
 	 * Complexity: Constant
 	 */
-	xorlist() noexcept(std::is_nothrow_default_constructible<_node_allocator>::value) {}
+	xorlist() noexcept(std::is_nothrow_default_constructible<__node_allocator>::value) {}
 
 	/**
 	 * Constructs an empty container with the given allocator `alloc`.
@@ -457,7 +457,7 @@ export template <typename T, class Allocator = std::allocator<T>> class xorlist 
 	 * Return value: The associated allocator.
 	 * Complexity: Constant.
 	 */
-	allocator_type get_allocator() const noexcept { allocator_type(base::_node_alloc()); }
+	allocator_type get_allocator() const noexcept { allocator_type(_node_alloc()); }
 
 	/* Element access */
 
@@ -533,14 +533,14 @@ export template <typename T, class Allocator = std::allocator<T>> class xorlist 
 	 * Return value: Iterator to the element following the last element.
 	 * Complexity: Constant.
 	 */
-	iterator end() noexcept { return iterator(_end_as_link()); }
+	iterator end() noexcept { return iterator(end); }
 
 	/*
 	 * Returns an iterator to the element following the last element of the list. This element acts as a placeholder; attempting to access it results in undefined behavior.
 	 * Return value: Iterator to the element following the last element.
 	 * Complexity: Constant.
 	 */
-	const_iterator end() const noexcept { return const_iterator(_end_as_link()); }
+	const_iterator end() const noexcept { return const_iterator(end); }
 
 	/*
 	 * Returns an iterator to the element following the last element of the list. This element acts as a placeholder; attempting to access it results in undefined behavior.
@@ -620,10 +620,26 @@ export template <typename T, class Allocator = std::allocator<T>> class xorlist 
 	/* Modifiers */
 
 	/*
-	 * Erases all elements from the container. After this call, `size()` returns zero. Invalidates any references, pointers, or iterators referring to contained elements. Any past-the-end iterator remains valid.
+	 * Erases all elements from the container. After this call, [`size()`](https://en.cppreference.com/w/cpp/container/list/size) returns zero. Invalidates any references, pointers, or iterators referring to contained elements. Any past-the-end iterator remains valid.
 	 * Complexity: Linear in the size of the container, i.e., the number of elements.
 	 */
-	void clear() noexcept { throw std::logic_error::logic_error("Not yet implemented"); }
+	void clear() noexcept {
+		if (!empty()) {
+			__node_allocator &__na = __node_alloc();
+
+			__node_pointer __f = _end._link;
+			__node_pointer __l = __f;
+			__unlink_nodes(__f, __l--);
+			_size = 0;
+
+			while (__f != __l) {
+				__node_pointer __np = __f->_as_node();
+				__f = __f->_link;
+				__node_alloc_traits::destroy(__na, std::addressof(__np->_value));
+				__node_alloc_traits::deallocate(__na, __np, 1);
+			}
+		}
+	}
 
 	/*
 	 * Inserts `value` before `pos`.
@@ -1151,9 +1167,12 @@ export template <typename T, class Allocator = std::allocator<T>> class xorlist 
 	}
 
   private:
-	_link_pointer _end_as_link() const noexcept {
-		return _node::_unsafe_link_pointer_cast(const_cast<_node &>(_end)._self());
+	inline void __unlink_nodes(_node<T> *__f, _node<T> *__l) noexcept {
+		__f->_link = __f;
+		__l->_link = __l;
 	}
+
+	 size_type __node_alloc_max_size() const noexcept { return __node_alloc_traits::max_size(alloc); }
 
 	void _copy_assign_alloc(const xorlist &other) {
 		if constexpr (std::allocator_traits<allocator_type>::propagate_on_container_copy_assignment::value) {
